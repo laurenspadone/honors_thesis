@@ -91,6 +91,100 @@ predict_por = function(data, matrix, response_index, strata_var_list){
   return(final_predictions)
 }
 
+
+# Predict the classification of a test set (required input of trained models)
+predict_por_test = function(data, matrix, response_index, strata_var_list, trained){
+  
+  models = trained$models
+  removed_vars = trained$removed_variables
+  
+  final_predictions = rep(-1, nrow(data))
+  step_0_model = models[[1]]
+  step_0_removed = removed_vars[[1]]
+  
+  components = split_components(matrix)
+  
+  for (i in 1:nrow(data)){
+    row = data[i,-response_index, drop=FALSE]
+    row = row[, !colnames(row) %in% step_0_removed, drop=FALSE]
+    
+    if (length(step_0_model) == 1){
+      prediction = 1
+    }else{
+      prediction = predict(step_0_model, newdata = row)
+      
+      if (is.factor(prediction) == FALSE){
+        if (prediction < 0){
+          prediction = 1
+        }else{
+          prediction = 2
+        }
+      }}
+    
+    component_num = prediction
+    component = components[[prediction]]
+    
+    if (length(component) == 1){
+      final_predictions[i] = component
+    }else{
+      new_matrix = split_matrix(component_num, matrix, components)
+      antichain_list = appending_chains(new_matrix)
+      
+      
+      step_1_models = models[[2]]
+      step_1_total_removed = removed_vars[[2]]
+      
+      step_1_model = step_1_models[[component_num]]
+      step_1_removed = step_1_total_removed[[component_num]]
+      
+      row = row[, !colnames(row) %in% step_1_removed, drop=FALSE]
+      
+      if (length(antichain_list) == 2){
+        row$strata_var_list = strata_var_list[i]
+        
+        pred_values = data.frame(probs = predict(step_1_model, newdata = row, type="risk"))
+        final_pred = pred_values %>% mutate(pred = ifelse(probs < 1, "1","2"))
+        
+        step_1_prediction = as.numeric(final_pred$pred)
+        
+        row = row[-which(colnames(row) == "strata_var_list")]
+        
+      }else{
+        step_1_prediction = predict(step_1_model, newdata = row)
+      }
+      
+      antichain = antichain_list[[step_1_prediction]]
+      
+      if (length(antichain) == 1){
+        final_predictions[i] = sort(component)[antichain]
+      }else{
+        step_2_models = models[[3]]
+        step_2_total_removed = removed_vars[[2]]
+        
+        step_2_model = step_2_models[[component_num]]
+        
+        step_2_removed = step_2_total_removed[[component_num]]
+        
+        row = row[, !colnames(row) %in% step_2_removed, drop=FALSE]
+        
+        prediction = predict(step_2_model, newdata = row)
+        
+        if (length(antichain) == 2){
+          if (prediction < 0){
+            prediction = 1
+          }else{
+            prediction = 2
+          }
+        }
+        part = antichain[prediction]
+        final_predictions[i] = sort(component)[part]
+      }}
+  }
+  
+  return(final_predictions)
+}
+
+
 predict_new_individual = function(train_model_output, new_data, matrix, strata_var){
   step_0_model = train_model_output$models[[1]]
   step_1_models = train_model_output$models[[2]]
